@@ -164,7 +164,7 @@ FetchContent_Declare(ftpsrv
 
 FetchContent_Declare(libhaze
     GIT_REPOSITORY https://github.com/ITotalJustice/libhaze.git
-    GIT_TAG af69c0a
+    GIT_TAG d318432
 )
 
 FetchContent_Declare(libpulsar
