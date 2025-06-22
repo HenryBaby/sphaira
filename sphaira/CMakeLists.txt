@@ -163,7 +163,7 @@ FetchContent_Declare(ftpsrv
 )
 
 FetchContent_Declare(libhaze
-    GIT_REPOSITORY https://github.com/ITotalJustice/libhaze.git
+    GIT_REPOSITORY https://github.com/HenryBaby/libhaze.git
     GIT_TAG d318432
 )
 
