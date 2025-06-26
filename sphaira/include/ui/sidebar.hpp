@@ -3,6 +3,8 @@
 #include "ui/widget.hpp"
 #include "ui/list.hpp"
 #include <memory>
+#include <concepts>
+#include <utility>
 
 namespace sphaira::ui {
 
@@ -14,6 +16,9 @@ public:
 protected:
     std::string m_title;
 };
+
+template<typename T>
+concept DerivedFromSidebarBase = std::is_base_of_v<SidebarEntryBase, T>;
 
 class SidebarEntryBool final : public SidebarEntryBase {
 public:
@@ -95,7 +100,7 @@ private:
 class Sidebar final : public Widget {
 public:
     enum class Side { LEFT, RIGHT };
-    using Items = std::vector<std::shared_ptr<SidebarEntryBase>>;
+    using Items = std::vector<std::unique_ptr<SidebarEntryBase>>;
 
 public:
     Sidebar(std::string title, Side side, Items&& items);
@@ -108,7 +113,12 @@ public:
     auto OnFocusGained() noexcept -> void override;
     auto OnFocusLost() noexcept -> void override;
 
-    void Add(std::shared_ptr<SidebarEntryBase> entry);
+    void Add(std::unique_ptr<SidebarEntryBase>&& entry);
+
+    template<DerivedFromSidebarBase T, typename... Args>
+    void Add(Args&&... args) {
+        Add(std::make_unique<T>(std::forward<Args>(args)...));
+    }
 
 private:
     void SetIndex(s64 index);

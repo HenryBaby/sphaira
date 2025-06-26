@@ -13,6 +13,7 @@
 #include "i18n.hpp"
 #include "threaded_file_transfer.hpp"
 #include "image.hpp"
+#include "title_info.hpp"
 
 #include <minIni.h>
 #include <stb_image.h>
@@ -260,9 +261,17 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     ON_SCOPE_EXIT(fs.DeleteFile(zip_out));
 
-    // create directories
+    // replace invalid characters in the name.
+    fs::FsPath name_buf{entry.details.name};
+    title::utilsReplaceIllegalCharacters(name_buf, false);
+
+    // replace invalid characters in the author.
+    fs::FsPath author_buf{entry.creator.display_name};
+    title::utilsReplaceIllegalCharacters(author_buf, false);
+
+    // create directories.
     fs::FsPath dir_path;
-    std::snprintf(dir_path, sizeof(dir_path), "%s/%s - By %s", THEME_FOLDER.s, entry.details.name.c_str(), entry.creator.display_name.c_str());
+    std::snprintf(dir_path, sizeof(dir_path), "%s/%s - By %s", THEME_FOLDER.s, name_buf.s, author_buf.s);
     fs.CreateDirectoryRecursively(dir_path);
 
     // 3. extract the zip
@@ -297,7 +306,7 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
 
     this->SetActions(
         std::make_pair(Button::A, Action{"Download"_i18n, [this](){
-            App::Push(std::make_shared<OptionBox>(
+            App::Push<OptionBox>(
                 "Download theme?"_i18n,
                 "Back"_i18n, "Download"_i18n, 1, [this](auto op_index){
                     if (op_index && *op_index) {
@@ -306,7 +315,7 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                             const auto& entry = page.m_packList[m_index];
                             const auto url = apiBuildUrlDownloadPack(entry);
 
-                            App::Push(std::make_shared<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox) -> Result {
+                            App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox) -> Result {
                                 return InstallTheme(pbox, entry);
                             }, [this, &entry](Result rc){
                                 App::PushErrorBox(rc, "Failed to download theme"_i18n);
@@ -314,15 +323,15 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                                 if (R_SUCCEEDED(rc)) {
                                     App::Notify("Downloaded "_i18n + entry.details.name);
                                 }
-                            }));
+                            });
                         }
                     }
                 }
-            ));
+            );
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
-            auto options = std::make_shared<Sidebar>("Themezer Options"_i18n, Sidebar::Side::RIGHT);
-            ON_SCOPE_EXIT(App::Push(options));
+            auto options = std::make_unique<Sidebar>("Themezer Options"_i18n, Sidebar::Side::RIGHT);
+            ON_SCOPE_EXIT(App::Push(std::move(options)));
 
             SidebarEntryArray::Items sort_items;
             sort_items.push_back("Downloads"_i18n);
@@ -334,26 +343,26 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
             order_items.push_back("Descending (down)"_i18n);
             order_items.push_back("Ascending (Up)"_i18n);
 
-            options->Add(std::make_shared<SidebarEntryBool>("Nsfw"_i18n, m_nsfw.Get(), [this](bool& v_out){
+            options->Add<SidebarEntryBool>("Nsfw"_i18n, m_nsfw.Get(), [this](bool& v_out){
                 m_nsfw.Set(v_out);
                 InvalidateAllPages();
-            }));
+            });
 
-            options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
+            options->Add<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
                 if (m_sort.Get() != index_out) {
                     m_sort.Set(index_out);
                     InvalidateAllPages();
                 }
-            }, m_sort.Get()));
+            }, m_sort.Get());
 
-            options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
+            options->Add<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
                 if (m_order.Get() != index_out) {
                     m_order.Set(index_out);
                     InvalidateAllPages();
                 }
-            }, m_order.Get()));
+            }, m_order.Get());
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Page"_i18n, [this](){
+            options->Add<SidebarEntryCallback>("Page"_i18n, [this](){
                 s64 out;
                 if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number"_i18n.c_str(), nullptr, -1, 3))) {
                     if (out < m_page_index_max) {
@@ -364,16 +373,16 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                         App::Notify("Bad Page"_i18n);
                     }
                 }
-            }));
+            });
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Search"_i18n, [this](){
+            options->Add<SidebarEntryCallback>("Search"_i18n, [this](){
                 std::string out;
                 if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
                     m_search = out;
                     // PackListDownload();
                     InvalidateAllPages();
                 }
-            }));
+            });
         }}),
         std::make_pair(Button::R2, Action{"Next"_i18n, [this](){
             m_page_index++;

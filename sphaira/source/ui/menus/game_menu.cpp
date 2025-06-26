@@ -26,7 +26,6 @@
 #include <cstring>
 #include <algorithm>
 #include <minIni.h>
-#include <nxtc.h>
 
 namespace sphaira::ui::menu::game {
 namespace {
@@ -173,9 +172,9 @@ private:
 
 Result Notify(Result rc, const std::string& error_message) {
     if (R_FAILED(rc)) {
-        App::Push(std::make_shared<ui::ErrorBox>(rc,
+        App::Push<ui::ErrorBox>(rc,
             i18n::get(error_message)
-        ));
+        );
     } else {
         App::Notify("Success"_i18n);
     }
@@ -186,12 +185,10 @@ Result GetMetaEntries(const Entry& e, title::MetaEntries& out, u32 flags = title
     return title::GetMetaEntries(e.app_id, out, flags);
 }
 
-bool LoadControlImage(Entry& e) {
-    if (!e.image && e.info && !e.info->icon.empty()) {
-        ON_SCOPE_EXIT(e.info.reset());
-
+bool LoadControlImage(Entry& e, title::ThreadResultData* result) {
+    if (!e.image && result && !result->icon.empty()) {
         TimeStamp ts;
-        const auto image = ImageLoadFromMemory(e.info->icon, ImageFlag_JPEG);
+        const auto image = ImageLoadFromMemory(result->icon, ImageFlag_JPEG);
         if (!image.data.empty()) {
             e.image = nvgCreateImageRGBA(App::GetVg(), image.w, image.h, 0, image.data.data());
             log_write("\t[image load] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
@@ -202,11 +199,12 @@ bool LoadControlImage(Entry& e) {
     return false;
 }
 
-void LoadResultIntoEntry(Entry& e, const std::shared_ptr<title::ThreadResultData>& result) {
-    e.info = result;
-    e.status = result->status;
-    e.lang = result->lang;
-    e.status = result->status;
+void LoadResultIntoEntry(Entry& e, title::ThreadResultData* result) {
+    if (result) {
+        e.status = result->status;
+        e.lang = result->lang;
+        e.status = result->status;
+    }
 }
 
 void LoadControlEntry(Entry& e, bool force_image_load = false) {
@@ -215,7 +213,7 @@ void LoadControlEntry(Entry& e, bool force_image_load = false) {
     }
 
     if (force_image_load && e.status == title::NacpLoadStatus::Loaded) {
-        LoadControlImage(e);
+        LoadControlImage(e, title::Get(e.app_id));
     }
 }
 
@@ -427,8 +425,11 @@ Result CreateSave(u64 app_id, AccountUid uid) {
     info.owner_id = data->nacp.save_data_owner_id;
     info.save_data_space_id = FsSaveDataSpaceId_User;
 
-    // what is this???
+    // https://switchbrew.org/wiki/Filesystem_services#CreateSaveDataFileSystem
     FsSaveDataMetaInfo meta{};
+    meta.size = 0x40060;
+    meta.type = FsSaveDataMetaType_Thumbnail;
+
     R_TRY(fsCreateSaveDataFileSystem(&attr, &info, &meta));
 
     R_SUCCEED();
@@ -475,13 +476,13 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
             LaunchEntry(m_entries[m_index]);
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
-            auto options = std::make_shared<Sidebar>("Game Options"_i18n, Sidebar::Side::RIGHT);
-            ON_SCOPE_EXIT(App::Push(options));
+            auto options = std::make_unique<Sidebar>("Game Options"_i18n, Sidebar::Side::RIGHT);
+            ON_SCOPE_EXIT(App::Push(std::move(options)));
 
             if (m_entries.size()) {
-                options->Add(std::make_shared<SidebarEntryCallback>("Sort By"_i18n, [this](){
-                    auto options = std::make_shared<Sidebar>("Sort Options"_i18n, Sidebar::Side::RIGHT);
-                    ON_SCOPE_EXIT(App::Push(options));
+                options->Add<SidebarEntryCallback>("Sort By"_i18n, [this](){
+                    auto options = std::make_unique<Sidebar>("Sort Options"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(std::move(options)));
 
                     SidebarEntryArray::Items sort_items;
                     sort_items.push_back("Updated"_i18n);
@@ -495,55 +496,55 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                     layout_items.push_back("Icon"_i18n);
                     layout_items.push_back("Grid"_i18n);
 
-                    options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this](s64& index_out){
+                    options->Add<SidebarEntryArray>("Sort"_i18n, sort_items, [this](s64& index_out){
                         m_sort.Set(index_out);
                         SortAndFindLastFile(false);
-                    }, m_sort.Get()));
+                    }, m_sort.Get());
 
-                    options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this](s64& index_out){
+                    options->Add<SidebarEntryArray>("Order"_i18n, order_items, [this](s64& index_out){
                         m_order.Set(index_out);
                         SortAndFindLastFile(false);
-                    }, m_order.Get()));
+                    }, m_order.Get());
 
-                    options->Add(std::make_shared<SidebarEntryArray>("Layout"_i18n, layout_items, [this](s64& index_out){
+                    options->Add<SidebarEntryArray>("Layout"_i18n, layout_items, [this](s64& index_out){
                         m_layout.Set(index_out);
                         OnLayoutChange();
-                    }, m_layout.Get()));
+                    }, m_layout.Get());
 
-                    options->Add(std::make_shared<SidebarEntryBool>("Hide forwarders"_i18n, m_hide_forwarders.Get(), [this](bool& v_out){
+                    options->Add<SidebarEntryBool>("Hide forwarders"_i18n, m_hide_forwarders.Get(), [this](bool& v_out){
                         m_hide_forwarders.Set(v_out);
                         m_dirty = true;
-                    }));
-                }));
+                    });
+                });
 
                 #if 0
-                options->Add(std::make_shared<SidebarEntryCallback>("Info"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Info"_i18n, [this](){
 
-                }));
+                });
                 #endif
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Launch random game"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Launch random game"_i18n, [this](){
                     const auto random_index = randomGet64() % std::size(m_entries);
                     auto& e = m_entries[random_index];
                     LoadControlEntry(e, true);
 
-                    App::Push(std::make_shared<OptionBox>(
+                    App::Push<OptionBox>(
                         "Launch "_i18n + e.GetName(),
                         "Back"_i18n, "Launch"_i18n, 1, [this, &e](auto op_index){
                             if (op_index && *op_index) {
                                 LaunchEntry(e);
                             }
                         }, e.image
-                    ));
-                }));
+                    );
+                });
 
-                options->Add(std::make_shared<SidebarEntryCallback>("List meta records"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("List meta records"_i18n, [this](){
                     title::MetaEntries meta_entries;
                     const auto rc = GetMetaEntries(m_entries[m_index], meta_entries);
                     if (R_FAILED(rc)) {
-                        App::Push(std::make_shared<ui::ErrorBox>(rc,
+                        App::Push<ui::ErrorBox>(rc,
                             i18n::get("Failed to list application meta entries")
-                        ));
+                        );
                         return;
                     }
 
@@ -559,7 +560,7 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                         items.emplace_back(buf);
                     }
 
-                    App::Push(std::make_shared<PopupList>(
+                    App::Push<PopupList>(
                         "Entries"_i18n, items, [this, meta_entries](auto op_index){
                             #if 0
                             if (op_index) {
@@ -567,99 +568,99 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                             }
                             #endif
                         }
-                    ));
-                }));
+                    );
+                });
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Dump"_i18n, [this](){
-                    auto options = std::make_shared<Sidebar>("Select content to dump"_i18n, Sidebar::Side::RIGHT);
-                    ON_SCOPE_EXIT(App::Push(options));
+                options->Add<SidebarEntryCallback>("Dump"_i18n, [this](){
+                    auto options = std::make_unique<Sidebar>("Select content to dump"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(std::move(options)));
 
-                    options->Add(std::make_shared<SidebarEntryCallback>("Dump All"_i18n, [this](){
+                    options->Add<SidebarEntryCallback>("Dump All"_i18n, [this](){
                         DumpGames(title::ContentFlag_All);
-                    }, true));
-                    options->Add(std::make_shared<SidebarEntryCallback>("Dump Application"_i18n, [this](){
+                    }, true);
+                    options->Add<SidebarEntryCallback>("Dump Application"_i18n, [this](){
                         DumpGames(title::ContentFlag_Application);
-                    }, true));
-                    options->Add(std::make_shared<SidebarEntryCallback>("Dump Patch"_i18n, [this](){
+                    }, true);
+                    options->Add<SidebarEntryCallback>("Dump Patch"_i18n, [this](){
                         DumpGames(title::ContentFlag_Patch);
-                    }, true));
-                    options->Add(std::make_shared<SidebarEntryCallback>("Dump AddOnContent"_i18n, [this](){
+                    }, true);
+                    options->Add<SidebarEntryCallback>("Dump AddOnContent"_i18n, [this](){
                         DumpGames(title::ContentFlag_AddOnContent);
-                    }, true));
-                    options->Add(std::make_shared<SidebarEntryCallback>("Dump DataPatch"_i18n, [this](){
+                    }, true);
+                    options->Add<SidebarEntryCallback>("Dump DataPatch"_i18n, [this](){
                         DumpGames(title::ContentFlag_DataPatch);
-                    }, true));
-                }, true));
+                    }, true);
+                }, true);
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Dump options"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Dump options"_i18n, [this](){
                     App::DisplayDumpOptions(false);
-                }));
+                });
 
                 // completely deletes the application record and all data.
-                options->Add(std::make_shared<SidebarEntryCallback>("Delete"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Delete"_i18n, [this](){
                     const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
-                    App::Push(std::make_shared<OptionBox>(
+                    App::Push<OptionBox>(
                         buf,
                         "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
                             if (op_index && *op_index) {
                                 DeleteGames();
                             }
                         }, m_entries[m_index].image
-                    ));
-                }, true));
+                    );
+                }, true);
             }
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Advanced options"_i18n, [this](){
-                auto options = std::make_shared<Sidebar>("Advanced Options"_i18n, Sidebar::Side::RIGHT);
-                ON_SCOPE_EXIT(App::Push(options));
+            options->Add<SidebarEntryCallback>("Advanced options"_i18n, [this](){
+                auto options = std::make_unique<Sidebar>("Advanced Options"_i18n, Sidebar::Side::RIGHT);
+                ON_SCOPE_EXIT(App::Push(std::move(options)));
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Refresh"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Refresh"_i18n, [this](){
                     m_dirty = true;
                     App::PopToMenu();
-                }));
+                });
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Create contents folder"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Create contents folder"_i18n, [this](){
                     const auto rc = fs::FsNativeSd().CreateDirectory(title::GetContentsPath(m_entries[m_index].app_id));
                     App::PushErrorBox(rc, "Folder create failed!"_i18n);
 
                     if (R_SUCCEEDED(rc)) {
                         App::Notify("Folder created!"_i18n);
                     }
-                }));
+                });
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Create save"_i18n, [this](){
+                options->Add<SidebarEntryCallback>("Create save"_i18n, [this](){
                     ui::PopupList::Items items{};
                     const auto accounts = App::GetAccountList();
                     for (auto& p : accounts) {
                         items.emplace_back(p.nickname);
                     }
 
-                    App::Push(std::make_shared<ui::PopupList>(
+                    App::Push<ui::PopupList>(
                         "Select user to create save for"_i18n, items, [this, accounts](auto op_index){
                             if (op_index) {
                                 CreateSaves(accounts[*op_index].uid);
                             }
                         }
-                    ));
-                }));
+                    );
+                });
 
-                options->Add(std::make_shared<SidebarEntryBool>("Title cache"_i18n, m_title_cache.Get(), [this](bool& v_out){
+                options->Add<SidebarEntryBool>("Title cache"_i18n, m_title_cache.Get(), [this](bool& v_out){
                     m_title_cache.Set(v_out);
-                }));
+                });
 
-                options->Add(std::make_shared<SidebarEntryCallback>("Delete title cache"_i18n, [this](){
-                    App::Push(std::make_shared<OptionBox>(
+                options->Add<SidebarEntryCallback>("Delete title cache"_i18n, [this](){
+                    App::Push<OptionBox>(
                         "Are you sure you want to delete the title cache?"_i18n,
                         "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
                             if (op_index && *op_index) {
                                 m_dirty = true;
-                                nxtcWipeCache();
+                                title::Clear();
                                 App::PopToMenu();
                             }
                         }
-                    ));
-                }));
-            }));
+                    );
+                });
+            });
         }})
     );
 
@@ -715,14 +716,12 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             title::PushAsync(e.app_id);
             e.status = title::NacpLoadStatus::Progress;
         } else if (e.status == title::NacpLoadStatus::Progress) {
-            if (const auto data = title::GetAsync(e.app_id)) {
-                LoadResultIntoEntry(e, data);
-            }
+            LoadResultIntoEntry(e, title::GetAsync(e.app_id));
         }
 
         // lazy load image
         if (image_load_count < image_load_max) {
-            if (LoadControlImage(e)) {
+            if (LoadControlImage(e, title::GetAsync(e.app_id))) {
                 image_load_count++;
             }
         }
@@ -880,7 +879,7 @@ void Menu::OnLayoutChange() {
 }
 
 void Menu::DeleteGames() {
-    App::Push(std::make_shared<ProgressBox>(0, "Deleting"_i18n, "", [this](auto pbox) -> Result {
+    App::Push<ProgressBox>(0, "Deleting"_i18n, "", [this](auto pbox) -> Result {
         auto targets = GetSelectedEntries();
 
         for (s64 i = 0; i < std::size(targets); i++) {
@@ -902,7 +901,7 @@ void Menu::DeleteGames() {
         if (R_SUCCEEDED(rc)) {
             App::Notify("Delete successfull!"_i18n);
         }
-    }));
+    });
 }
 
 void Menu::DumpGames(u32 flags) {
@@ -925,7 +924,7 @@ void Menu::DumpGames(u32 flags) {
 }
 
 void Menu::CreateSaves(AccountUid uid) {
-    App::Push(std::make_shared<ProgressBox>(0, "Creating"_i18n, "", [this, uid](auto pbox) -> Result {
+    App::Push<ProgressBox>(0, "Creating"_i18n, "", [this, uid](auto pbox) -> Result {
         auto targets = GetSelectedEntries();
 
         for (s64 i = 0; i < std::size(targets); i++) {
@@ -952,7 +951,7 @@ void Menu::CreateSaves(AccountUid uid) {
         if (R_SUCCEEDED(rc)) {
             App::Notify("Save create successfull!"_i18n);
         }
-    }));
+    });
 }
 
 } // namespace sphaira::ui::menu::game
